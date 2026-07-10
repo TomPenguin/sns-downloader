@@ -1,0 +1,14 @@
+# macOS
+.DS_Store
+
+# XcodeGen が生成する(xcodegen generate で再生成できる)
+SNSDownloader.xcodeproj/
+
+# Xcode
+xcuserdata/
+*.xcuserstate
+build/
+DerivedData/
+
+# Claude Code ローカル設定
+.claude/settings.local.json
