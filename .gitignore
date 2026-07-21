@@ -10,5 +10,10 @@ xcuserdata/
 build/
 DerivedData/
 
+# ビルド成果物
+dist/
+*.ipa
+Payload/
+
 # Claude Code ローカル設定
 .claude/settings.local.json
