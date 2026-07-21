@@ -13,11 +13,11 @@
       "category": "utilities",
       "versions": [
         {
-          "version": "1.0.2",
-          "buildVersion": "3",
+          "version": "1.0.3",
+          "buildVersion": "4",
           "date": "2026-07-21",
           "localizedDescription": "最新版",
-          "downloadURL": "https://github.com/TomPenguin/sns-downloader/releases/download/v1.0.2/SNSDownloader.ipa",
+          "downloadURL": "https://github.com/TomPenguin/sns-downloader/releases/download/v1.0.3/SNSDownloader.ipa",
           "size": 1029977,
           "minOSVersion": "16.0"
         }
