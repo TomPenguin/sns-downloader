@@ -1,0 +1,34 @@
+{
+  "name": "SNS Downloader",
+  "identifier": "tech.karabiner.mochi.altsource",
+  "apps": [
+    {
+      "name": "SNS Downloader",
+      "bundleIdentifier": "tech.karabiner.mochi.snsdownloader",
+      "developerName": "TomPenguin",
+      "subtitle": "SNSの画像・動画を写真に一括保存",
+      "localizedDescription": "X / Instagram / TikTok / YouTube / pixiv の画像・動画・うごイラを写真ライブラリに保存します。",
+      "iconURL": "https://raw.githubusercontent.com/TomPenguin/sns-downloader/main/icon.png",
+      "tintColor": "#1DA1F2",
+      "category": "utilities",
+      "versions": [
+        {
+          "version": "1.0.1",
+          "buildVersion": "2",
+          "date": "2026-07-21",
+          "localizedDescription": "最新版",
+          "downloadURL": "https://github.com/TomPenguin/sns-downloader/releases/download/v1.0.1/SNSDownloader.ipa",
+          "size": 1029977,
+          "minOSVersion": "16.0"
+        }
+      ],
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": {
+          "NSPhotoLibraryAddUsageDescription": "ダウンロードした画像・動画を写真ライブラリに保存するため"
+        }
+      }
+    }
+  ],
+  "news": []
+}
