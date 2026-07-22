@@ -1,52 +1,49 @@
+import PhotosUI
 import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var manager: DownloadManager
     @Environment(\.scenePhase) private var scenePhase
+    @ObservedObject private var oshi = OshiImageStore.shared
     @State private var input = ""
     @State private var showSettings = false
     @FocusState private var inputFocused: Bool
 
     var body: some View {
-        NavigationStack {
+        ZStack {
+            background
+
             VStack(spacing: 12) {
+                HStack {
+                    settingsButton
+                    Spacer()
+                }
+                Spacer()
+                jobCapsules
                 inputArea
                 actionButtons
-                jobList
             }
             .padding()
-            .navigationTitle("SNS Downloader")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button {
-                        showSettings = true
-                    } label: {
-                        Image(systemName: "gearshape")
-                    }
+
+            toastOverlay
+        }
+        .animation(.spring(duration: 0.35), value: manager.toast)
+        .animation(.spring(duration: 0.35), value: manager.jobs)
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
+        }
+        .sheet(item: $manager.activeSelection, onDismiss: {
+            manager.handleSelectionDismiss()
+        }) { selection in
+            MediaSelectionView(
+                selection: selection,
+                onConfirm: { indices in
+                    manager.confirmSelection(selection, selectedIndices: indices)
+                },
+                onCancel: {
+                    manager.cancelSelection(selection)
                 }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("完了を消去") {
-                        manager.clearFinished()
-                    }
-                    .disabled(!manager.jobs.contains { $0.status.isFinished })
-                }
-            }
-            .sheet(isPresented: $showSettings) {
-                SettingsView()
-            }
-            .sheet(item: $manager.activeSelection, onDismiss: {
-                manager.handleSelectionDismiss()
-            }) { selection in
-                MediaSelectionView(
-                    selection: selection,
-                    onConfirm: { indices in
-                        manager.confirmSelection(selection, selectedIndices: indices)
-                    },
-                    onCancel: {
-                        manager.cancelSelection(selection)
-                    }
-                )
-            }
+            )
         }
         .task {
             await autoPasteFromClipboard()
@@ -54,6 +51,11 @@ struct ContentView: View {
         .onChange(of: scenePhase) { phase in
             if phase == .active {
                 Task { await autoPasteFromClipboard() }
+            }
+        }
+        .onChange(of: manager.toast) { toast in
+            if toast != nil {
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
             }
         }
     }
@@ -75,22 +77,76 @@ struct ContentView: View {
         }
     }
 
-    private var inputArea: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("X / Instagram / TikTok / YouTube の投稿URL(複数可・改行区切り)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            TextEditor(text: $input)
-                .focused($inputFocused)
-                .frame(height: 100)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-                .keyboardType(.URL)
-                .scrollContentBackground(.hidden)
-                .padding(8)
-                .background(Color(.secondarySystemBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+    // MARK: - 背景(推し画像)
+
+    @ViewBuilder
+    private var background: some View {
+        if let image = oshi.image {
+            GeometryReader { geo in
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .clipped()
+            }
+            .ignoresSafeArea()
+            // 下部の操作エリアの視認性を確保するスクリム
+            LinearGradient(
+                colors: [.clear, .clear, .black.opacity(0.35)],
+                startPoint: .top, endPoint: .bottom
+            )
+            .ignoresSafeArea()
+        } else {
+            LinearGradient(
+                colors: [Color(.systemBackground), Color(.secondarySystemBackground)],
+                startPoint: .top, endPoint: .bottom
+            )
+            .ignoresSafeArea()
         }
+    }
+
+    private var settingsButton: some View {
+        Button {
+            showSettings = true
+        } label: {
+            Image(systemName: "gearshape.fill")
+                .font(.title3)
+                .foregroundStyle(.primary)
+                .padding(10)
+                .background(.ultraThinMaterial, in: Circle())
+        }
+    }
+
+    // MARK: - 進行状況(履歴は持たない)
+
+    private var jobCapsules: some View {
+        VStack(spacing: 8) {
+            ForEach(manager.jobs) { job in
+                JobCapsule(
+                    job: job,
+                    onRetry: { manager.retry(jobID: job.id) },
+                    onDismiss: { manager.dismiss(jobID: job.id) }
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+    }
+
+    // MARK: - 入力・操作
+
+    private var inputArea: some View {
+        TextField(
+            "X / Instagram / TikTok / YouTube / pixiv のURL(複数可)",
+            text: $input,
+            axis: .vertical
+        )
+        .lineLimit(2...5)
+        .focused($inputFocused)
+        .autocorrectionDisabled()
+        .textInputAutocapitalization(.never)
+        .keyboardType(.URL)
+        .padding(14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
     }
 
     private var actionButtons: some View {
@@ -104,9 +160,10 @@ struct ContentView: View {
                 }
             } label: {
                 Label("ペースト", systemImage: "doc.on.clipboard")
-                    .frame(maxWidth: .infinity)
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, minHeight: 54)
             }
-            .buttonStyle(.bordered)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
 
             Button {
                 inputFocused = false
@@ -114,66 +171,84 @@ struct ContentView: View {
                 input = ""
             } label: {
                 Label("ダウンロード", systemImage: "arrow.down.circle.fill")
-                    .frame(maxWidth: .infinity)
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, minHeight: 54)
             }
             .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.roundedRectangle(radius: 16))
             .disabled(HTTP.allURLs(in: input).isEmpty)
         }
     }
 
-    private var jobList: some View {
-        List {
-            if manager.jobs.isEmpty {
-                Text("共有シートからも保存できます:\n各アプリで「共有」→「SNSに保存」")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .listRowBackground(Color.clear)
-            }
-            ForEach(manager.jobs) { job in
-                JobRow(job: job) {
-                    manager.retry(jobID: job.id)
+    // MARK: - 保存完了トースト
+
+    @ViewBuilder
+    private var toastOverlay: some View {
+        if let toast = manager.toast {
+            VStack {
+                HStack(spacing: 10) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.title2)
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(.white, .green)
+                    Text(toast.text)
+                        .font(.headline)
                 }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+                .background(.regularMaterial, in: Capsule())
+                .shadow(color: .black.opacity(0.25), radius: 10, y: 4)
+                .padding(.top, 8)
+                Spacer()
             }
+            .transition(.move(edge: .top).combined(with: .scale(scale: 0.8)).combined(with: .opacity))
         }
-        .listStyle(.plain)
     }
 }
 
-private struct JobRow: View {
+// MARK: - 進行中ジョブのカプセル表示
+
+private struct JobCapsule: View {
     let job: DownloadJob
     let onRetry: () -> Void
+    let onDismiss: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: iconName)
-                .foregroundStyle(iconColor)
-                .frame(width: 24)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Image(systemName: iconName)
+                    .foregroundStyle(iconColor)
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(displayURL)
-                    .font(.subheadline)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text(job.status.label)
-                    .font(.caption)
-                    .foregroundStyle(statusColor)
-                if case .downloading(_, _, let fraction) = job.status {
-                    ProgressView(value: fraction)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(displayURL)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text(job.status.label)
+                        .font(.footnote)
+                }
+
+                Spacer()
+
+                if case .failed = job.status {
+                    Button(action: onRetry) {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderless)
+                    Button(action: onDismiss) {
+                        Image(systemName: "xmark")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
                 }
             }
-
-            Spacer()
-
-            if case .failed = job.status {
-                Button {
-                    onRetry()
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .buttonStyle(.borderless)
+            if case .downloading(_, _, let fraction) = job.status {
+                ProgressView(value: fraction)
             }
         }
-        .padding(.vertical, 2)
+        .padding(12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
     }
 
     private var displayURL: String {
@@ -199,23 +274,51 @@ private struct JobRow: View {
         default: return .secondary
         }
     }
-
-    private var statusColor: Color {
-        if case .failed = job.status { return .orange }
-        return .secondary
-    }
 }
+
+// MARK: - 設定
 
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var oshi = OshiImageStore.shared
     @State private var session = InstagramSession.load()
     @State private var pixivSession = PixivSession.load()
     @State private var showLogin = false
     @State private var showPixivLogin = false
+    @State private var pickerItem: PhotosPickerItem?
+    @State private var cropSource: CropSource?
 
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    if let image = oshi.image {
+                        HStack(spacing: 12) {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 44, height: 44)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                            Text("設定済み")
+                        }
+                    }
+                    PhotosPicker(selection: $pickerItem, matching: .images) {
+                        Label(
+                            oshi.image == nil ? "推し画像を設定" : "推し画像を変更",
+                            systemImage: "photo.on.rectangle.angled"
+                        )
+                    }
+                    if oshi.image != nil {
+                        Button("推し画像を削除", role: .destructive) {
+                            oshi.clear()
+                        }
+                    }
+                } header: {
+                    Text("推し画像")
+                } footer: {
+                    Text("選んだ画像がアプリの背景として全画面に表示されます。選択後にトリミングできます。")
+                }
+
                 Section {
                     if let current = session, current.isValid {
                         Label {
@@ -285,6 +388,24 @@ struct SettingsView: View {
                     if success {
                         pixivSession = PixivSession.load()
                     }
+                }
+            }
+            .onChange(of: pickerItem) { item in
+                guard let item else { return }
+                Task {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        cropSource = CropSource(image: image)
+                    }
+                    pickerItem = nil
+                }
+            }
+            .fullScreenCover(item: $cropSource) { source in
+                OshiCropView(source: source.image) { cropped in
+                    oshi.save(cropped)
+                    cropSource = nil
+                } onCancel: {
+                    cropSource = nil
                 }
             }
         }

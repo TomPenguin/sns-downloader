@@ -1,10 +1,16 @@
 import Foundation
 import SwiftUI
 
-struct DownloadJob: Identifiable {
+struct DownloadJob: Identifiable, Equatable {
     let id = UUID()
     let sourceURL: URL
     var status: JobStatus = .waiting
+}
+
+/// 保存完了時に一瞬表示するトースト
+struct ToastMessage: Identifiable, Equatable {
+    let id = UUID()
+    let text: String
 }
 
 /// 複数メディアの投稿で「どれを保存するか」をユーザーに選ばせるための保留状態
@@ -19,6 +25,8 @@ final class DownloadManager: ObservableObject {
     @Published var jobs: [DownloadJob] = []
     /// 現在表示中の選択シート(nil なら非表示)
     @Published var activeSelection: PendingSelection?
+    /// 保存完了トースト(nil なら非表示)
+    @Published var toast: ToastMessage?
 
     private var selectionQueue: [PendingSelection] = []
 
@@ -40,8 +48,9 @@ final class DownloadManager: ObservableObject {
         }
     }
 
-    func clearFinished() {
-        jobs.removeAll { $0.status.isFinished }
+    /// 失敗カプセルの「閉じる」
+    func dismiss(jobID: UUID) {
+        jobs.removeAll { $0.id == jobID }
     }
 
     func retry(jobID: UUID) {
@@ -134,5 +143,31 @@ final class DownloadManager: ObservableObject {
     private func update(jobID: UUID, status: JobStatus) {
         guard let index = jobs.firstIndex(where: { $0.id == jobID }) else { return }
         jobs[index].status = status
+
+        // 保存完了はトーストで知らせて、ジョブは少し見せてから自動で消す
+        // (履歴リストを持たない UI のため。失敗はリトライできるよう残す)
+        if case .done(let saved) = status {
+            showToast("\(saved)件を写真に保存しました")
+            scheduleRemoval(jobID: jobID)
+        }
+    }
+
+    private func showToast(_ text: String) {
+        let message = ToastMessage(text: text)
+        toast = message
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.6) { [weak self] in
+            if self?.toast == message {
+                self?.toast = nil
+            }
+        }
+    }
+
+    private func scheduleRemoval(jobID: UUID) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.jobs.removeAll { job in
+                guard job.id == jobID, case .done = job.status else { return false }
+                return true
+            }
+        }
     }
 }
