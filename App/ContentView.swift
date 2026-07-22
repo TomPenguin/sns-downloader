@@ -19,9 +19,13 @@ struct ContentView: View {
                     Spacer()
                 }
                 Spacer()
+                if oshi.image == nil {
+                    oshiPlaceholder
+                    Spacer()
+                }
                 jobCapsules
                 inputArea
-                actionButtons
+                downloadButton
             }
             .padding()
 
@@ -149,35 +153,47 @@ struct ContentView: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
     }
 
-    private var actionButtons: some View {
-        HStack(spacing: 12) {
-            Button {
-                if let pasted = UIPasteboard.general.string {
-                    if !input.isEmpty && !input.hasSuffix("\n") {
-                        input += "\n"
-                    }
-                    input += pasted
-                }
-            } label: {
-                Label("ペースト", systemImage: "doc.on.clipboard")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity, minHeight: 54)
-            }
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-
-            Button {
-                inputFocused = false
-                manager.addAndStart(text: input)
-                input = ""
-            } label: {
-                Label("ダウンロード", systemImage: "arrow.down.circle.fill")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity, minHeight: 54)
-            }
-            .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.roundedRectangle(radius: 16))
-            .disabled(HTTP.allURLs(in: input).isEmpty)
+    private var downloadButton: some View {
+        Button {
+            inputFocused = false
+            manager.addAndStart(text: input)
+            input = ""
+        } label: {
+            Label("ダウンロード", systemImage: "arrow.down.circle.fill")
+                .font(.title3.bold())
+                .frame(maxWidth: .infinity, minHeight: 64)
         }
+        .buttonStyle(.borderedProminent)
+        .buttonBorderShape(.roundedRectangle(radius: 18))
+        .disabled(HTTP.allURLs(in: input).isEmpty)
+    }
+
+    // MARK: - 推し画像未設定時のプレースホルダ
+
+    private var oshiPlaceholder: some View {
+        Button {
+            showSettings = true
+        } label: {
+            VStack(spacing: 14) {
+                Image(systemName: "photo.badge.plus")
+                    .font(.system(size: 56))
+                    .foregroundStyle(.secondary)
+                Text("推し画像を設定しよう")
+                    .font(.title3.bold())
+                Text("設定から好きな画像を選ぶと\nアプリの背景に表示されます")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                Label("設定を開く", systemImage: "gearshape.fill")
+                    .font(.subheadline.bold())
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
+                    .background(.regularMaterial, in: Capsule())
+            }
+            .foregroundStyle(.primary)
+            .padding(28)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - 保存完了トースト
