@@ -79,9 +79,11 @@ private struct MediaCell: View {
     var body: some View {
         Button(action: onTap) {
             ZStack(alignment: .topTrailing) {
-                thumbnail
-                    .frame(minHeight: 100)
-                    .aspectRatio(1, contentMode: .fill)
+                // グリッド幅から正方形セルを確定し、その中に画像を fill してクリップする。
+                // (画像の自然サイズでセル幅が押し広げられてレイアウトが崩れるのを防ぐ)
+                Color(.secondarySystemBackground)
+                    .aspectRatio(1, contentMode: .fit)
+                    .overlay { thumbnail }
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .overlay(
                         RoundedRectangle(cornerRadius: 10)
