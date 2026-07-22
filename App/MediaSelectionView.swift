@@ -103,18 +103,10 @@ private struct MediaCell: View {
     private var thumbnail: some View {
         ZStack {
             if let url = item.thumbnailURL {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image.resizable().scaledToFill()
-                    case .failure:
-                        placeholder
-                    default:
-                        ZStack {
-                            Color(.secondarySystemBackground)
-                            ProgressView()
-                        }
-                    }
+                // AsyncImage はカスタムヘッダを送れず、pixiv (i.pximg.net) など
+                // Referer 必須の CDN では 403 になるため、ヘッダ対応の自前ローダを使う
+                RemoteImageView(url: url, headers: item.httpHeaders) {
+                    placeholder
                 }
             } else {
                 placeholder
@@ -135,6 +127,60 @@ private struct MediaCell: View {
             Image(systemName: item.type == .video ? "video" : "photo")
                 .font(.title2)
                 .foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// HTTP ヘッダ(Referer など)を付けて画像を取得できる AsyncImage 代替。
+/// pixiv の i.pximg.net は Referer が無いと 403 になるため必要。
+private struct RemoteImageView<Placeholder: View>: View {
+    let url: URL
+    let headers: [String: String]
+    @ViewBuilder let placeholder: () -> Placeholder
+
+    @StateObject private var loader = RemoteImageLoader()
+
+    var body: some View {
+        Group {
+            if let image = loader.image {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else if loader.failed {
+                placeholder()
+            } else {
+                ZStack {
+                    Color(.secondarySystemBackground)
+                    ProgressView()
+                }
+            }
+        }
+        .task { await loader.load(url: url, headers: headers) }
+    }
+}
+
+@MainActor
+private final class RemoteImageLoader: ObservableObject {
+    @Published var image: UIImage?
+    @Published var failed = false
+    private var loaded = false
+
+    func load(url: URL, headers: [String: String]) async {
+        guard !loaded else { return }
+        loaded = true
+        var request = URLRequest(url: url)
+        request.setValue(HTTP.browserUserAgent, forHTTPHeaderField: "User-Agent")
+        for (key, value) in headers {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200,
+                  let image = UIImage(data: data) else {
+                failed = true
+                return
+            }
+            self.image = image
+        } catch {
+            failed = true
         }
     }
 }

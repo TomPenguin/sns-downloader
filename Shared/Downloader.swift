@@ -26,8 +26,40 @@ final class Downloader: NSObject, @unchecked Sendable {
         _ item: MediaItem,
         progress: @escaping @Sendable (Double) -> Void = { _ in }
     ) async throws -> URL {
-        var request = URLRequest(url: item.url)
+        try await download(
+            url: item.url,
+            filenameBase: item.filenameBase,
+            defaultExtension: item.defaultExtension,
+            headers: item.httpHeaders,
+            chunkSize: item.downloadChunkSize,
+            progress: progress
+        )
+    }
+
+    /// 任意の URL をダウンロードして一時ディレクトリ内のファイル URL を返す。
+    func download(
+        url: URL,
+        filenameBase: String,
+        defaultExtension: String,
+        headers: [String: String] = [:],
+        chunkSize: Int? = nil,
+        progress: @escaping @Sendable (Double) -> Void = { _ in }
+    ) async throws -> URL {
+        if let chunkSize {
+            return try await downloadInChunks(
+                url: url,
+                filenameBase: filenameBase,
+                defaultExtension: defaultExtension,
+                headers: headers,
+                chunkSize: chunkSize,
+                progress: progress
+            )
+        }
+        var request = URLRequest(url: url)
         request.setValue(HTTP.browserUserAgent, forHTTPHeaderField: "User-Agent")
+        for (key, value) in headers {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
 
         return try await withCheckedThrowingContinuation { continuation in
             let task = session.downloadTask(with: request)
@@ -35,12 +67,85 @@ final class Downloader: NSObject, @unchecked Sendable {
             handlers[task.taskIdentifier] = Handler(
                 progress: progress,
                 continuation: continuation,
-                filenameBase: item.filenameBase,
-                defaultExtension: item.defaultExtension
+                filenameBase: filenameBase,
+                defaultExtension: defaultExtension
             )
             lock.unlock()
             task.resume()
         }
+    }
+
+    /// Range リクエストで分割ダウンロードする。
+    /// YouTube (googlevideo) は一定サイズを超える一括取得を 403 で拒否するため、
+    /// チャンクごとに取得してファイルに追記していく(2026-07 時点で 10MB は許容、
+    /// 40MB や Range なしは 403)。
+    private func downloadInChunks(
+        url: URL,
+        filenameBase: String,
+        defaultExtension: String,
+        headers: [String: String],
+        chunkSize: Int,
+        progress: @escaping @Sendable (Double) -> Void
+    ) async throws -> URL {
+        var destination: URL?
+        var handle: FileHandle?
+        defer { try? handle?.close() }
+
+        var offset = 0
+        var total = Int.max
+        while offset < total {
+            var request = URLRequest(url: url)
+            request.setValue(HTTP.browserUserAgent, forHTTPHeaderField: "User-Agent")
+            for (key, value) in headers {
+                request.setValue(value, forHTTPHeaderField: key)
+            }
+            request.setValue("bytes=\(offset)-\(offset + chunkSize - 1)", forHTTPHeaderField: "Range")
+            let (data, http) = try await HTTP.perform(request)
+            guard (200...299).contains(http.statusCode) else {
+                throw SaveError.httpError(http.statusCode)
+            }
+
+            if destination == nil {
+                let ext = Self.fileExtension(
+                    urlExtension: url.pathExtension,
+                    mimeType: http.mimeType,
+                    fallback: defaultExtension
+                )
+                let dest = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("\(filenameBase)_\(UUID().uuidString.prefix(8))")
+                    .appendingPathExtension(ext)
+                FileManager.default.createFile(atPath: dest.path, contents: nil)
+                handle = try FileHandle(forWritingTo: dest)
+                destination = dest
+            }
+
+            if http.statusCode == 200 {
+                // サーバが Range を無視して全量を返した
+                total = data.count
+            } else if total == Int.max {
+                total = Self.contentRangeTotal(from: http) ?? (offset + data.count)
+            }
+
+            guard !data.isEmpty else { break } // 想定外の空レスポンスで無限ループしないように
+            try handle?.write(contentsOf: data)
+            offset += data.count
+            progress(min(1.0, Double(offset) / Double(total)))
+        }
+
+        guard let destination else {
+            throw URLError(.badServerResponse)
+        }
+        return destination
+    }
+
+    /// Content-Range ヘッダ ("bytes 0-9/1234") から全体サイズを取り出す
+    private static func contentRangeTotal(from response: HTTPURLResponse) -> Int? {
+        guard let contentRange = response.value(forHTTPHeaderField: "Content-Range"),
+              let totalString = contentRange.split(separator: "/").last,
+              let total = Int(totalString) else {
+            return nil
+        }
+        return total
     }
 
     private func takeHandler(for task: URLSessionTask) -> Handler? {
@@ -56,13 +161,21 @@ final class Downloader: NSObject, @unchecked Sendable {
     }
 
     private static func fileExtension(for task: URLSessionTask, fallback: String) -> String {
+        fileExtension(
+            urlExtension: task.originalRequest?.url?.pathExtension,
+            mimeType: (task.response as? HTTPURLResponse)?.mimeType,
+            fallback: fallback
+        )
+    }
+
+    private static func fileExtension(urlExtension: String?, mimeType: String?, fallback: String) -> String {
         // 1. URL の拡張子
-        if let ext = task.originalRequest?.url?.pathExtension.lowercased(),
+        if let ext = urlExtension?.lowercased(),
            ["jpg", "jpeg", "png", "gif", "webp", "heic", "mp4", "mov", "m4v"].contains(ext) {
             return ext
         }
         // 2. MIME タイプ
-        if let mime = (task.response as? HTTPURLResponse)?.mimeType?.lowercased() {
+        if let mime = mimeType?.lowercased() {
             switch mime {
             case "image/jpeg": return "jpg"
             case "image/png": return "png"

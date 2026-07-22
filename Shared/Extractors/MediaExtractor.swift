@@ -10,6 +10,8 @@ enum ExtractorRouter {
         TwitterExtractor(),
         InstagramExtractor(),
         TikTokExtractor(),
+        YouTubeExtractor(),
+        PixivExtractor(),
     ]
 
     static func extract(from url: URL) async throws -> [MediaItem] {

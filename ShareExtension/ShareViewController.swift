@@ -153,7 +153,12 @@ final class ShareModel: ObservableObject {
         guard let url = sourceURL, !isDownloadingInPlace else { return }
         isDownloadingInPlace = true
         Task {
-            let result = await DownloadPipeline.run(url: url) { [weak self] status in
+            // 共有拡張は本体アプリの pixiv ログインを読めないため、R-18 等は
+            // 本体アプリで開くよう案内する
+            let restrictedMessage = "R-18等の作品は共有から保存できません。本体アプリ(SNS Downloader)を開き、URLを貼り付けて保存してください"
+            let result = await DownloadPipeline.run(
+                url: url, pixivRestrictedMessage: restrictedMessage
+            ) { [weak self] status in
                 Task { @MainActor [weak self] in
                     self?.status = status
                 }

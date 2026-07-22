@@ -77,7 +77,7 @@ struct ContentView: View {
 
     private var inputArea: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("X / Instagram / TikTok の投稿URL(複数可・改行区切り)")
+            Text("X / Instagram / TikTok / YouTube の投稿URL(複数可・改行区切り)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             TextEditor(text: $input)
@@ -209,7 +209,9 @@ private struct JobRow: View {
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var session = InstagramSession.load()
+    @State private var pixivSession = PixivSession.load()
     @State private var showLogin = false
+    @State private var showPixivLogin = false
 
     var body: some View {
         NavigationStack {
@@ -238,6 +240,31 @@ struct SettingsView: View {
                 } footer: {
                     Text("ログインすると、カルーセル(複数枚投稿)の全メディアと、フォロー中の非公開アカウントの投稿もダウンロードできるようになります。Cookieは端末のKeychainにのみ保存されます。")
                 }
+
+                Section {
+                    if let current = pixivSession, current.isValid {
+                        Label {
+                            Text("ログイン済み" + (current.userID.map { "(ID: \($0))" } ?? ""))
+                        } icon: {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                        }
+                        Button("ログアウト", role: .destructive) {
+                            PixivSession.clear()
+                            pixivSession = nil
+                        }
+                    } else {
+                        Button {
+                            showPixivLogin = true
+                        } label: {
+                            Label("pixivにログイン", systemImage: "person.crop.circle.badge.plus")
+                        }
+                    }
+                } header: {
+                    Text("pixiv")
+                } footer: {
+                    Text("ログインすると、R-18・R-18Gなどログインが必要な作品もダウンロードできるようになります。pixivの設定で「性的コンテンツを表示する」を有効にしておいてください。Cookieは端末のKeychainにのみ保存されます。")
+                }
             }
             .navigationTitle("設定")
             .navigationBarTitleDisplayMode(.inline)
@@ -250,6 +277,13 @@ struct SettingsView: View {
                 InstagramLoginView { success in
                     if success {
                         session = InstagramSession.load()
+                    }
+                }
+            }
+            .sheet(isPresented: $showPixivLogin) {
+                PixivLoginView { success in
+                    if success {
+                        pixivSession = PixivSession.load()
                     }
                 }
             }

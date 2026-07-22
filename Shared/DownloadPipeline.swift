@@ -33,9 +33,13 @@ enum JobStatus: Equatable, Sendable {
 /// (本体アプリと共有シート拡張の両方から使う)
 enum DownloadPipeline {
 
-    /// 1 つの投稿 URL を処理する(全メディアを保存)。共有拡張のフォールバック用
+    /// 1 つの投稿 URL を処理する(全メディアを保存)。共有拡張のフォールバック用。
+    /// `pixivRestrictedMessage` を渡すと、pixiv の R-18 等(要ログイン)で失敗したときに
+    /// その文言を代わりに表示する(共有拡張は本体アプリのログインを読めないため、
+    /// 「本体アプリで開いてください」と案内する用途)。
     static func run(
         url: URL,
+        pixivRestrictedMessage: String? = nil,
         onStatus: @escaping @Sendable (JobStatus) -> Void
     ) async -> JobStatus {
         do {
@@ -43,7 +47,13 @@ enum DownloadPipeline {
             let items = try await ExtractorRouter.extract(from: url)
             return await downloadAndSave(items: items, onStatus: onStatus)
         } catch {
-            let result = JobStatus.failed(Self.message(for: error))
+            let message: String
+            if case ExtractError.pixivRestricted = error, let override = pixivRestrictedMessage {
+                message = override
+            } else {
+                message = Self.message(for: error)
+            }
+            let result = JobStatus.failed(message)
             onStatus(result)
             return result
         }
@@ -64,7 +74,7 @@ enum DownloadPipeline {
                 let current = index + 1
                 onStatus(.downloading(current: current, total: total, fraction: Double(index) / Double(total)))
 
-                let fileURL = try await Downloader.shared.download(item) { itemFraction in
+                let fileURL = try await fetchFile(for: item) { itemFraction in
                     let overall = (Double(index) + itemFraction) / Double(total)
                     onStatus(.downloading(current: current, total: total, fraction: overall))
                 }
@@ -84,6 +94,50 @@ enum DownloadPipeline {
             onStatus(result)
             return result
         }
+    }
+
+    /// 1 メディア分のファイルを用意する。
+    /// 音声が別ストリームの場合(YouTube 高画質)は映像・音声を順に落として合成する。
+    private static func fetchFile(
+        for item: MediaItem,
+        progress: @escaping @Sendable (Double) -> Void
+    ) async throws -> URL {
+        // うごイラ: フレーム ZIP を落として mp4 に組み立てる
+        if let frames = item.ugoiraFrames {
+            let zipFile = try await Downloader.shared.download(
+                url: item.url,
+                filenameBase: item.filenameBase,
+                defaultExtension: "zip",
+                headers: item.httpHeaders
+            ) { progress($0 * 0.8) }
+            defer { try? FileManager.default.removeItem(at: zipFile) }
+            let mp4 = try UgoiraConverter.convert(
+                zipFile: zipFile, frames: frames, filenameBase: item.filenameBase)
+            progress(1.0)
+            return mp4
+        }
+
+        guard let audioURL = item.audioURL else {
+            return try await Downloader.shared.download(item, progress: progress)
+        }
+
+        // 映像 0.0〜0.75 → 音声 0.75〜0.95 → 合成 → 1.0
+        let videoFile = try await Downloader.shared.download(item) { progress($0 * 0.75) }
+        let audioFile = try await Downloader.shared.download(
+            url: audioURL,
+            filenameBase: item.filenameBase + "_audio",
+            defaultExtension: "m4a",
+            headers: item.httpHeaders,
+            chunkSize: item.downloadChunkSize
+        ) { progress(0.75 + $0 * 0.2) }
+        defer {
+            try? FileManager.default.removeItem(at: videoFile)
+            try? FileManager.default.removeItem(at: audioFile)
+        }
+        let muxed = try await MediaMuxer.mux(
+            videoFile: videoFile, audioFile: audioFile, filenameBase: item.filenameBase)
+        progress(1.0)
+        return muxed
     }
 
     private static func message(for error: Error) -> String {
