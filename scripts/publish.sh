@@ -105,7 +105,9 @@ cat > "$APPS_JSON" <<JSON
 JSON
 
 # --- 6. apps.json / icon.png / project.yml をコミット & push ---
-git add "$APPS_JSON" "$ICON" project.yml
+# Info.plist は xcodegen が project.yml から再生成するため、バージョンを上げると
+# 必ず差分が出る。ここで一緒にコミットしないと作業ツリーが汚れたままになる
+git add "$APPS_JSON" "$ICON" project.yml App/Info.plist ShareExtension/Info.plist
 git commit -m "Publish $NEW_VER (build $NEW_BUILD)"
 git push origin HEAD
 
