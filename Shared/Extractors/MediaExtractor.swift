@@ -12,6 +12,7 @@ enum ExtractorRouter {
         TikTokExtractor(),
         YouTubeExtractor(),
         PixivExtractor(),
+        AdultVideoExtractor(),
     ]
 
     static func extract(from url: URL) async throws -> [MediaItem] {
