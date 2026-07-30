@@ -1,69 +1,23 @@
 import SwiftUI
+import WebKit
 
-/// iwara にログインしてトークンを Keychain に保存する。
-/// pixiv / Instagram は Cookie が必要なため WKWebView を使うが、iwara は
-/// ログイン API がトークンを返すので、そのままフォームで入力させる
+/// アプリ内 WKWebView で iwara にログインし、トークンを Keychain に保存する。
+/// pixiv / Instagram は Cookie を拾うが、iwara のフロントエンドは
+/// localStorage の "token" に長期トークンを書き込むのでそこから取る
 struct IwaraLoginView: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var email = ""
-    @State private var password = ""
-    @State private var isSubmitting = false
-    @State private var errorMessage: String?
-    @FocusState private var focusedField: Field?
+    @State private var didLogin = false
 
     var onComplete: (Bool) -> Void
 
-    private enum Field {
-        case email
-        case password
-    }
-
-    private var canSubmit: Bool {
-        !email.isEmpty && !password.isEmpty && !isSubmitting
-    }
-
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    TextField("メールアドレス", text: $email)
-                        .textContentType(.username)
-                        .keyboardType(.emailAddress)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .focused($focusedField, equals: .email)
-                        .submitLabel(.next)
-                        .onSubmit { focusedField = .password }
-                    SecureField("パスワード", text: $password)
-                        .textContentType(.password)
-                        .focused($focusedField, equals: .password)
-                        .submitLabel(.go)
-                        .onSubmit { if canSubmit { submit() } }
-                } footer: {
-                    Text("iwaraのアカウントでログインします。パスワードは保存されず、発行されたトークンだけを端末のKeychainに保存します。")
-                }
-
-                if let errorMessage {
-                    Section {
-                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.red)
-                    }
-                }
-
-                Section {
-                    Button {
-                        submit()
-                    } label: {
-                        HStack {
-                            if isSubmitting {
-                                ProgressView()
-                                    .padding(.trailing, 4)
-                            }
-                            Text(isSubmitting ? "ログイン中…" : "ログイン")
-                        }
-                    }
-                    .disabled(!canSubmit)
-                }
+            LoginWebView { session in
+                guard !didLogin else { return }
+                didLogin = true
+                session.save()
+                onComplete(true)
+                dismiss()
             }
             .navigationTitle("iwaraにログイン")
             .navigationBarTitleDisplayMode(.inline)
@@ -73,30 +27,64 @@ struct IwaraLoginView: View {
                         onComplete(false)
                         dismiss()
                     }
-                    .disabled(isSubmitting)
                 }
             }
-            .onAppear { focusedField = .email }
         }
     }
+}
 
-    private func submit() {
-        isSubmitting = true
-        errorMessage = nil
-        Task {
-            do {
-                let session = try await IwaraSession.logIn(email: email, password: password)
-                session.save()
-                // 前のログインで掴んだアクセストークンが残らないようにする
-                await IwaraTokenProvider.shared.invalidate()
-                isSubmitting = false
-                onComplete(true)
-                dismiss()
-            } catch {
-                errorMessage = (error as? LocalizedError)?.errorDescription
-                    ?? error.localizedDescription
-                isSubmitting = false
+private struct LoginWebView: UIViewRepresentable {
+    /// トークンが取得できたときに呼ばれる
+    var onSession: (IwaraSession) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onSession: onSession)
+    }
+
+    func makeUIView(context: Context) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .default()
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        // ここでは UA を差し替えない。iwara は Cloudflare の判定を通す必要があり、
+        // 素の WKWebView の UA のままが一番素直に通る。認証もトークン方式なので、
+        // pixiv のように API 側と UA を揃える必要がない
+        webView.navigationDelegate = context.coordinator
+        webView.load(URLRequest(url: URL(string: "https://www.iwara.tv/login")!))
+        return webView
+    }
+
+    func updateUIView(_ uiView: WKWebView, context: Context) {}
+
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        private let onSession: (IwaraSession) -> Void
+        private var timer: Timer?
+
+        init(onSession: @escaping (IwaraSession) -> Void) {
+            self.onSession = onSession
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            checkForToken(webView)
+            // SPA なのでログイン成功でもページ遷移が起きないことがあり、
+            // didFinish だけでは拾えない。定期的に確認する
+            timer?.invalidate()
+            timer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self, weak webView] _ in
+                guard let webView else { return }
+                self?.checkForToken(webView)
             }
+        }
+
+        private func checkForToken(_ webView: WKWebView) {
+            webView.evaluateJavaScript("localStorage.getItem('token')") { [weak self] result, _ in
+                guard let token = result as? String, !token.isEmpty else { return }
+                self?.timer?.invalidate()
+                self?.timer = nil
+                self?.onSession(IwaraSession(refreshToken: token))
+            }
+        }
+
+        deinit {
+            timer?.invalidate()
         }
     }
 }

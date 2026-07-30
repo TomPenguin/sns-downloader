@@ -1,8 +1,9 @@
 import Foundation
 
 /// iwara のログイン状態。
-/// ログイン API が返す長期トークンだけを Keychain に保存し(パスワードは保存しない)、
-/// API 呼び出しに使う短期のアクセストークンはそれと引き換えに都度発行する。
+/// 本体アプリの WKWebView ログインで localStorage から長期トークンを取り出し、
+/// Keychain 経由で共有シート拡張からも使う。API 呼び出しに使う短期のアクセス
+/// トークンは、その長期トークンと引き換えに都度発行する。
 ///
 /// 未ログインでも動画は取得できるが、配信される画質が 360p だけに制限される。
 /// ログインすると Source(原本)を含む全画質が返るようになる。
@@ -10,42 +11,11 @@ struct IwaraSession: Codable {
     /// 同ファイルの IwaraTokenProvider から失効時に消すため fileprivate
     fileprivate static let keychainKey = "iwara.session"
 
-    /// ログインで得た長期トークン
+    /// フロントエンドが localStorage に持っている長期トークン
     var refreshToken: String
-    /// 設定画面にどのアカウントか表示するためだけに持つ
-    var email: String
 
     var isValid: Bool {
         !refreshToken.isEmpty
-    }
-
-    // MARK: - ログイン
-
-    static func logIn(email: String, password: String) async throws -> IwaraSession {
-        var request = URLRequest(url: URL(string: "https://api.iwara.tv/user/login")!)
-        request.httpMethod = "POST"
-        request.setValue(HTTP.browserUserAgent, forHTTPHeaderField: "User-Agent")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(
-            withJSONObject: ["email": email, "password": password])
-
-        let (data, http) = try await HTTP.perform(request)
-        switch http.statusCode {
-        case 200:
-            break
-        case 400, 401, 403:
-            throw IwaraLoginError.invalidCredentials
-        case 429:
-            throw IwaraLoginError.tooManyAttempts
-        default:
-            throw IwaraLoginError.other("HTTP \(http.statusCode)")
-        }
-
-        guard let response = try? JSONDecoder().decode(TokenResponse.self, from: data),
-              let token = response.token, !token.isEmpty else {
-            throw IwaraLoginError.other("レスポンスの解析に失敗しました")
-        }
-        return IwaraSession(refreshToken: token, email: email)
     }
 
     // MARK: - 永続化
@@ -67,23 +37,6 @@ struct IwaraSession: Codable {
     static func clear() {
         KeychainStore.delete(forKey: keychainKey)
         Task { await IwaraTokenProvider.shared.invalidate() }
-    }
-}
-
-enum IwaraLoginError: LocalizedError {
-    case invalidCredentials
-    case tooManyAttempts
-    case other(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidCredentials:
-            return "メールアドレスまたはパスワードが違います"
-        case .tooManyAttempts:
-            return "試行回数が多すぎます。しばらく待ってから再試行してください"
-        case .other(let message):
-            return "ログインに失敗しました: \(message)"
-        }
     }
 }
 

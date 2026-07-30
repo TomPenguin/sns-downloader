@@ -390,7 +390,7 @@ struct SettingsView: View {
                 Section {
                     if let current = iwaraSession, current.isValid {
                         Label {
-                            Text("ログイン済み(\(current.email))")
+                            Text("ログイン済み")
                         } icon: {
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundStyle(.green)
@@ -409,7 +409,7 @@ struct SettingsView: View {
                 } header: {
                     Text("iwara")
                 } footer: {
-                    Text("未ログインだと360pしかダウンロードできません。ログインすると原本(Source)を含む全画質が選べるようになります。パスワードは保存されず、トークンだけが端末のKeychainに保存されます。")
+                    Text("未ログインだと360pしかダウンロードできません。ログインすると原本(Source)を含む全画質が選べるようになります。トークンは端末のKeychainにのみ保存されます。")
                 }
             }
             .navigationTitle("設定")
