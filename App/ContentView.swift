@@ -299,8 +299,10 @@ struct SettingsView: View {
     @ObservedObject private var oshi = OshiImageStore.shared
     @State private var session = InstagramSession.load()
     @State private var pixivSession = PixivSession.load()
+    @State private var iwaraSession = IwaraSession.load()
     @State private var showLogin = false
     @State private var showPixivLogin = false
+    @State private var showIwaraLogin = false
     @State private var pickerItem: PhotosPickerItem?
     @State private var cropSource: CropSource?
 
@@ -384,6 +386,31 @@ struct SettingsView: View {
                 } footer: {
                     Text("ログインすると、R-18・R-18Gなどログインが必要な作品もダウンロードできるようになります。pixivの設定で「性的コンテンツを表示する」を有効にしておいてください。Cookieは端末のKeychainにのみ保存されます。")
                 }
+
+                Section {
+                    if let current = iwaraSession, current.isValid {
+                        Label {
+                            Text("ログイン済み(\(current.email))")
+                        } icon: {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                        }
+                        Button("ログアウト", role: .destructive) {
+                            IwaraSession.clear()
+                            iwaraSession = nil
+                        }
+                    } else {
+                        Button {
+                            showIwaraLogin = true
+                        } label: {
+                            Label("iwaraにログイン", systemImage: "person.crop.circle.badge.plus")
+                        }
+                    }
+                } header: {
+                    Text("iwara")
+                } footer: {
+                    Text("未ログインだと360pしかダウンロードできません。ログインすると原本(Source)を含む全画質が選べるようになります。パスワードは保存されず、トークンだけが端末のKeychainに保存されます。")
+                }
             }
             .navigationTitle("設定")
             .navigationBarTitleDisplayMode(.inline)
@@ -403,6 +430,13 @@ struct SettingsView: View {
                 PixivLoginView { success in
                     if success {
                         pixivSession = PixivSession.load()
+                    }
+                }
+            }
+            .sheet(isPresented: $showIwaraLogin) {
+                IwaraLoginView { success in
+                    if success {
+                        iwaraSession = IwaraSession.load()
                     }
                 }
             }
