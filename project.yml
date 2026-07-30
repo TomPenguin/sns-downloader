@@ -30,8 +30,8 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: SNS Downloader
-        CFBundleShortVersionString: "1.0.9"
-        CFBundleVersion: "10"
+        CFBundleShortVersionString: "1.0.10"
+        CFBundleVersion: "11"
         UILaunchScreen: {}
         UIRequiresFullScreen: true
         UISupportedInterfaceOrientations:
@@ -63,8 +63,8 @@ targets:
       path: ShareExtension/Info.plist
       properties:
         CFBundleDisplayName: SNSに保存
-        CFBundleShortVersionString: "1.0.9"
-        CFBundleVersion: "10"
+        CFBundleShortVersionString: "1.0.10"
+        CFBundleVersion: "11"
         NSPhotoLibraryAddUsageDescription: ダウンロードした画像・動画を写真ライブラリに保存するために使用します。
         NSExtension:
           NSExtensionPointIdentifier: com.apple.share-services
