@@ -7,18 +7,18 @@
       "bundleIdentifier": "tech.karabiner.mochi.snsdownloader",
       "developerName": "TomPenguin",
       "subtitle": "SNSの画像・動画を写真に一括保存",
-      "localizedDescription": "X / Instagram / TikTok / YouTube / pixiv の画像・動画・うごイラを写真ライブラリに保存します。",
+      "localizedDescription": "X / Instagram / Threads / TikTok / YouTube / pixiv の画像・動画・うごイラを写真ライブラリに保存します。",
       "iconURL": "https://raw.githubusercontent.com/TomPenguin/sns-downloader/main/icon.png",
       "tintColor": "#1DA1F2",
       "category": "utilities",
       "versions": [
         {
-          "version": "1.0.11",
-          "buildVersion": "12",
-          "date": "2026-07-30",
+          "version": "1.0.12",
+          "buildVersion": "13",
+          "date": "2026-09-20",
           "localizedDescription": "最新版",
-          "downloadURL": "https://github.com/TomPenguin/sns-downloader/releases/download/v1.0.11/SNSDownloader.ipa",
-          "size": 1182498,
+          "downloadURL": "https://github.com/TomPenguin/sns-downloader/releases/download/v1.0.12/SNSDownloader.ipa",
+          "size": 1307639,
           "minOSVersion": "16.0"
         }
       ],
