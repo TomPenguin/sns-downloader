@@ -1,12 +1,12 @@
 # SNS Downloader
 
-X (Twitter) / Instagram / TikTok / YouTube / pixiv の画像・動画を写真ライブラリに一括保存する個人用 iOS アプリ。
+X (Twitter) / Instagram / Threads / TikTok / YouTube / pixiv の画像・動画を写真ライブラリに一括保存する個人用 iOS アプリ。
 
 ## 機能
 
 - **本体アプリ**: 投稿 URL をペースト(複数行 OK)→ 一括ダウンロード → 写真アプリに保存
   - 起動・前面復帰時、クリップボードに URL があれば入力欄へ自動ペースト
-- **共有シート拡張**: X / Instagram / TikTok / pixiv アプリや Safari で「共有」→「SNSに保存」→ その場で保存
+- **共有シート拡張**: X / Instagram / Threads / TikTok / pixiv アプリや Safari で「共有」→「SNSに保存」→ その場で保存
 - 進捗表示・失敗時のリトライ付き
 
 ## 対応 URL と取得方法
@@ -14,8 +14,10 @@ X (Twitter) / Instagram / TikTok / YouTube / pixiv の画像・動画を写真�
 | プラットフォーム | 対応内容 | 取得経路 |
 |---|---|---|
 | X (x.com / twitter.com) | 画像(複数枚可)・動画・GIF、オリジナル解像度 | FxTwitter API (api.fxtwitter.com) |
-| Instagram(ログイン時) | カルーセル全枚数・非公開(フォロー中)含む画像・動画 | 公式 Web API + セッション Cookie |
-| Instagram(未ログイン) | フィード画像・リール動画の 1 枚目のみ(公開投稿) | InstaFix ミラー (kkinstagram.com) → og タグ fallback |
+| Instagram(ログイン時) | 投稿・リール・カルーセル全枚数、非公開(フォロー中)含む画像・動画 | 公式 Web API + セッション Cookie |
+| Instagram(未ログイン) | 投稿画像・リール動画の 1 枚目のみ(公開投稿) | InstaFix ミラー (kkinstagram.com) → og タグ fallback |
+| Threads(ログイン時) | 投稿の画像・動画(カルーセル全枚数) | Instagram セッション Cookie + 公式 Web API |
+| Threads(未ログイン) | 公開投稿の画像(複数枚可)・動画 | vxThreads ミラー (vxthreads.com) の og タグ |
 | TikTok | 動画(HD・透かしなし)・画像スライドショー、短縮リンク (vm.tiktok.com) 可 | tikwm.com API |
 | YouTube | 動画・Shorts(watch / youtu.be / shorts / live / embed 形式)、最高画質(通常 1080p) | YouTube 内部 player API (Innertube) + 映像・音声の合成 |
 | pixiv | イラスト・マンガの全ページ(オリジナル解像度)、うごイラ(mp4 に変換)、R-18 等(ログイン時) | pixiv AJAX API (www.pixiv.net/ajax) + セッション Cookie + うごイラ ZIP の展開・動画化 |

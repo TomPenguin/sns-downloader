@@ -21,19 +21,30 @@ enum HTTP {
         return (data, http)
     }
 
+    /// リダイレクトを追わずにレスポンスを返す。
+    /// セッション切れの API がログインページとの間で 302 ループを起こすことがあり
+    /// (Instagram の /api/v1/media/... など)、追跡すると URLSession が 16 回で
+    /// 「too many HTTP redirects」を投げるため、3xx はそのまま受け取って判定する
+    static func performWithoutRedirects(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        let delegate = NoRedirectDelegate()
+        let session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
+        }
+        return (data, http)
+    }
+
     /// リダイレクトを追わずに Location ヘッダの URL を返す(3xx でなければ nil)
     static func redirectLocation(for url: URL, headers: [String: String] = [:]) async throws -> URL? {
         var request = URLRequest(url: url)
         for (key, value) in headers {
             request.setValue(value, forHTTPHeaderField: key)
         }
-        let delegate = NoRedirectDelegate()
-        let session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
-        defer { session.finishTasksAndInvalidate() }
-
-        let (_, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse,
-              (300...399).contains(http.statusCode),
+        let (_, http) = try await performWithoutRedirects(request)
+        guard (300...399).contains(http.statusCode),
               let location = http.value(forHTTPHeaderField: "Location") else {
             return nil
         }

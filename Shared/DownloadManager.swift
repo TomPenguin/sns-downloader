@@ -27,6 +27,8 @@ final class DownloadManager: ObservableObject {
     @Published var activeSelection: PendingSelection?
     /// 保存完了トースト(nil なら非表示)
     @Published var toast: ToastMessage?
+    /// Instagram のセッションが切れていて再ログインが必要か
+    @Published var needsInstagramRelogin = InstagramSession.needsRelogin
 
     private var selectionQueue: [PendingSelection] = []
 
@@ -140,9 +142,19 @@ final class DownloadManager: ObservableObject {
         }
     }
 
+    /// Keychain 上のセッション状態を読み直す(ログイン直後・ジョブ完了後に呼ぶ)
+    func refreshInstagramSessionState() {
+        needsInstagramRelogin = InstagramSession.needsRelogin
+    }
+
     private func update(jobID: UUID, status: JobStatus) {
         guard let index = jobs.firstIndex(where: { $0.id == jobID }) else { return }
         jobs[index].status = status
+
+        // 抽出中にセッション切れを検知していることがあるので、決着したタイミングで反映する
+        if status.isFinished {
+            refreshInstagramSessionState()
+        }
 
         // 保存完了はトーストで知らせて、ジョブは少し見せてから自動で消す
         // (履歴リストを持たない UI のため。失敗はリトライできるよう残す)

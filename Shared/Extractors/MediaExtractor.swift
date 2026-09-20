@@ -9,6 +9,7 @@ enum ExtractorRouter {
     static let extractors: [any MediaExtractor] = [
         TwitterExtractor(),
         InstagramExtractor(),
+        ThreadsExtractor(),
         TikTokExtractor(),
         YouTubeExtractor(),
         PixivExtractor(),

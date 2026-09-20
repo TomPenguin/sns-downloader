@@ -7,6 +7,7 @@ struct ContentView: View {
     @ObservedObject private var oshi = OshiImageStore.shared
     @State private var input = ""
     @State private var showSettings = false
+    @State private var showInstagramLogin = false
     @FocusState private var inputFocused: Bool
 
     var body: some View {
@@ -23,6 +24,10 @@ struct ContentView: View {
                     oshiPlaceholder
                     Spacer()
                 }
+                if manager.needsInstagramRelogin {
+                    InstagramReloginBanner { showInstagramLogin = true }
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
                 jobCapsules
                 inputArea
                 downloadButton
@@ -33,8 +38,14 @@ struct ContentView: View {
         }
         .animation(.spring(duration: 0.35), value: manager.toast)
         .animation(.spring(duration: 0.35), value: manager.jobs)
+        .animation(.spring(duration: 0.35), value: manager.needsInstagramRelogin)
         .sheet(isPresented: $showSettings) {
             SettingsView()
+        }
+        .sheet(isPresented: $showInstagramLogin) {
+            InstagramLoginView { _ in
+                manager.refreshInstagramSessionState()
+            }
         }
         .sheet(item: $manager.activeSelection, onDismiss: {
             manager.handleSelectionDismiss()
@@ -54,6 +65,7 @@ struct ContentView: View {
         }
         .onChange(of: scenePhase) { phase in
             if phase == .active {
+                manager.refreshInstagramSessionState()
                 Task { await autoPasteFromClipboard() }
             }
         }
@@ -140,7 +152,7 @@ struct ContentView: View {
 
     private var inputArea: some View {
         TextField(
-            "X / Instagram / TikTok / YouTube / pixiv のURL(複数可)",
+            "X / Instagram / Threads / TikTok / YouTube / pixiv のURL(複数可)",
             text: $input,
             axis: .vertical
         )
@@ -222,82 +234,13 @@ struct ContentView: View {
     }
 }
 
-// MARK: - 進行中ジョブのカプセル表示
-
-private struct JobCapsule: View {
-    let job: DownloadJob
-    let onRetry: () -> Void
-    let onDismiss: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 10) {
-                Image(systemName: iconName)
-                    .foregroundStyle(iconColor)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(displayURL)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Text(job.status.label)
-                        .font(.footnote)
-                }
-
-                Spacer()
-
-                if case .failed = job.status {
-                    Button(action: onRetry) {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .buttonStyle(.borderless)
-                    Button(action: onDismiss) {
-                        Image(systemName: "xmark")
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.borderless)
-                }
-            }
-            if case .downloading(_, _, let fraction) = job.status {
-                ProgressView(value: fraction)
-            }
-        }
-        .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-    }
-
-    private var displayURL: String {
-        let host = (job.sourceURL.host ?? "").replacingOccurrences(of: "www.", with: "")
-        return host + job.sourceURL.path
-    }
-
-    private var iconName: String {
-        switch job.status {
-        case .waiting: return "clock"
-        case .extracting: return "magnifyingglass"
-        case .selecting: return "checklist"
-        case .downloading: return "arrow.down.circle"
-        case .done: return "checkmark.circle.fill"
-        case .failed: return "exclamationmark.triangle.fill"
-        }
-    }
-
-    private var iconColor: Color {
-        switch job.status {
-        case .done: return .green
-        case .failed: return .orange
-        default: return .secondary
-        }
-    }
-}
-
 // MARK: - 設定
 
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var oshi = OshiImageStore.shared
     @State private var session = InstagramSession.load()
+    @State private var needsRelogin = InstagramSession.needsRelogin
     @State private var pixivSession = PixivSession.load()
     @State private var iwaraSession = IwaraSession.load()
     @State private var showLogin = false
@@ -348,12 +291,24 @@ struct SettingsView: View {
                         Button("ログアウト", role: .destructive) {
                             InstagramSession.clear()
                             session = nil
+                            needsRelogin = false
                         }
                     } else {
+                        if needsRelogin {
+                            Label {
+                                Text("セッションが切れました")
+                            } icon: {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
+                            }
+                        }
                         Button {
                             showLogin = true
                         } label: {
-                            Label("Instagramにログイン", systemImage: "person.crop.circle.badge.plus")
+                            Label(
+                                needsRelogin ? "Instagramに再ログイン" : "Instagramにログイン",
+                                systemImage: "person.crop.circle.badge.plus"
+                            )
                         }
                     }
                 } header: {
@@ -424,6 +379,7 @@ struct SettingsView: View {
                     if success {
                         session = InstagramSession.load()
                     }
+                    needsRelogin = InstagramSession.needsRelogin
                 }
             }
             .sheet(isPresented: $showPixivLogin) {

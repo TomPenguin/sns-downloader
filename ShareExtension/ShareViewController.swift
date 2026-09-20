@@ -2,34 +2,23 @@ import UIKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// 共有シートの入口。共有された URL を取り出し、
-/// snsdl:// スキームで本体アプリを起動して即ダウンロードさせる。
-/// 本体アプリを開けなかった場合は自動でその場ダウンロードにフォールバックする。
+/// 共有シートの入口。共有された URL をその場でダウンロードする。
+/// 処理は本体アプリと同じ DownloadManager / 選択シート / 進行カプセルを使うので、
+/// 直接ダウンロードしたときと体験が揃う
 final class ShareViewController: UIViewController {
 
-    private let model = ShareModel()
-    private var targetURL: URL?
-    private var hasAppeared = false
-    private var openAttempted = false
-    private var resolved = false
+    private let manager = DownloadManager()
+    private let state = ShareState()
 
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
 
-        model.onClose = { [weak self] in
+        state.onClose = { [weak self] in
             self?.extensionContext?.completeRequest(returningItems: nil)
         }
 
-        // 本体アプリが開く = このホストアプリが非アクティブになる、で起動成功を検知する
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(hostWillResignActive),
-            name: NSNotification.Name.NSExtensionHostWillResignActive,
-            object: nil
-        )
-
-        let host = UIHostingController(rootView: ShareView(model: model))
+        let host = UIHostingController(rootView: ShareRootView(manager: manager, state: state))
         addChild(host)
         host.view.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(host.view)
@@ -42,12 +31,6 @@ final class ShareViewController: UIViewController {
         host.didMove(toParent: self)
 
         loadSharedURL()
-    }
-
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-        hasAppeared = true
-        tryOpenMainAppIfReady()
     }
 
     // MARK: - 共有 URL の取得
@@ -76,113 +59,38 @@ final class ShareViewController: UIViewController {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             guard let url else {
-                self.model.status = .failed("共有された内容からURLを取得できませんでした")
+                self.state.loadError = "共有された内容からURLを取得できませんでした"
                 return
             }
-            self.model.sourceURL = url
-            self.targetURL = url
-            self.tryOpenMainAppIfReady()
+            self.state.sourceURL = url
+            self.manager.addAndStart(text: url.absoluteString)
         }
-    }
-
-    // MARK: - 本体アプリの起動
-
-    /// ビューが表示済み & URL 取得済みになったら一度だけ起動を試みる
-    private func tryOpenMainAppIfReady() {
-        guard hasAppeared, !openAttempted, let url = targetURL else { return }
-        openAttempted = true
-
-        var components = URLComponents()
-        components.scheme = "snsdl"
-        components.host = "download"
-        components.queryItems = [URLQueryItem(name: "url", value: url.absoluteString)]
-        guard let deepLink = components.url else {
-            fallbackToInPlace()
-            return
-        }
-
-        openViaResponderChain(deepLink)
-
-        // 一定時間たってもホストが非アクティブにならなければ起動失敗とみなし、
-        // その場ダウンロードに自動フォールバック
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-            self?.fallbackToInPlace()
-        }
-    }
-
-    /// 共有シート拡張から親アプリを開く(responder chain 経由の openURL:)
-    private func openViaResponderChain(_ url: URL) {
-        let selector = NSSelectorFromString("openURL:")
-        var responder: UIResponder? = self
-        while let current = responder {
-            if let application = current as? UIApplication {
-                application.perform(selector, with: url)
-                return
-            }
-            responder = current.next
-        }
-    }
-
-    /// 本体アプリが開いた(ホストアプリが非アクティブになった)→ シートを閉じる
-    @objc private func hostWillResignActive() {
-        guard openAttempted, !resolved else { return }
-        resolved = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-            self?.extensionContext?.completeRequest(returningItems: nil)
-        }
-    }
-
-    /// アプリを起動できなかったときのその場ダウンロード
-    private func fallbackToInPlace() {
-        guard !resolved else { return }
-        resolved = true
-        model.startInPlace()
     }
 }
 
-// MARK: - その場ダウンロード UI
+// MARK: - 共有シート固有の状態
 
 @MainActor
-final class ShareModel: ObservableObject {
-    @Published var status: JobStatus = .waiting
+final class ShareState: ObservableObject {
     @Published var sourceURL: URL?
-    @Published var isDownloadingInPlace = false
+    /// URL そのものが取れなかったときのメッセージ(ジョブにならないので別に持つ)
+    @Published var loadError: String?
     var onClose: (() -> Void)?
-
-    func startInPlace() {
-        guard let url = sourceURL, !isDownloadingInPlace else { return }
-        isDownloadingInPlace = true
-        Task {
-            // 共有拡張は本体アプリの pixiv ログインを読めないため、R-18 等は
-            // 本体アプリで開くよう案内する
-            let restrictedMessage = "R-18等の作品は共有から保存できません。本体アプリ(SNS Downloader)を開き、URLを貼り付けて保存してください"
-            let result = await DownloadPipeline.run(
-                url: url, pixivRestrictedMessage: restrictedMessage
-            ) { [weak self] status in
-                Task { @MainActor [weak self] in
-                    self?.status = status
-                }
-            }
-            if case .done = result {
-                try? await Task.sleep(nanoseconds: 1_200_000_000)
-                self.onClose?()
-            }
-        }
-    }
 }
 
-struct ShareView: View {
-    @ObservedObject var model: ShareModel
+// MARK: - 共有シートの画面
+
+struct ShareRootView: View {
+    @ObservedObject var manager: DownloadManager
+    @ObservedObject var state: ShareState
+    @State private var showInstagramLogin = false
+    @State private var isClosing = false
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 12) {
             Spacer()
 
-            Image(systemName: iconName)
-                .font(.system(size: 44))
-                .foregroundStyle(iconColor)
-
-            if let url = model.sourceURL {
+            if let url = state.sourceURL, manager.jobs.isEmpty {
                 Text((url.host ?? "") + url.path)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -191,51 +99,73 @@ struct ShareView: View {
                     .padding(.horizontal)
             }
 
-            Text(statusText)
-                .font(.headline)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
-
-            if case .downloading(_, _, let fraction) = model.status {
-                ProgressView(value: fraction)
-                    .padding(.horizontal, 40)
-            } else if !model.status.isFinished {
+            if let message = state.loadError {
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .font(.footnote)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+            } else if manager.jobs.isEmpty {
                 ProgressView()
+            }
+
+            if manager.needsInstagramRelogin {
+                InstagramReloginBanner { showInstagramLogin = true }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
+            ForEach(manager.jobs) { job in
+                JobCapsule(
+                    job: job,
+                    onRetry: { manager.retry(jobID: job.id) },
+                    onDismiss: { manager.dismiss(jobID: job.id) }
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
             Spacer()
 
             Button {
-                model.onClose?()
+                state.onClose?()
             } label: {
-                Text(model.status.isFinished ? "閉じる" : "キャンセル")
+                Text(isFinished ? "閉じる" : "キャンセル")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
-            .padding()
+        }
+        .padding()
+        .animation(.spring(duration: 0.35), value: manager.jobs)
+        .animation(.spring(duration: 0.35), value: manager.needsInstagramRelogin)
+        .sheet(item: $manager.activeSelection, onDismiss: {
+            manager.handleSelectionDismiss()
+        }) { selection in
+            MediaSelectionView(
+                selection: selection,
+                onConfirm: { indices in
+                    manager.confirmSelection(selection, selectedIndices: indices)
+                },
+                onCancel: {
+                    manager.cancelSelection(selection)
+                }
+            )
+        }
+        .sheet(isPresented: $showInstagramLogin) {
+            InstagramLoginView { _ in
+                manager.refreshInstagramSessionState()
+            }
+        }
+        // 保存完了(トースト発火)を合図に閉じる。本体アプリはトーストを出すだけで
+        // 画面が残るが、共有シートは用が済んだら閉じるのが自然なのでここだけ差をつける
+        .onChange(of: manager.toast) { toast in
+            guard toast != nil, !isClosing else { return }
+            isClosing = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                state.onClose?()
+            }
         }
     }
 
-    private var statusText: String {
-        if model.isDownloadingInPlace || model.status.isFinished {
-            return model.status.label
-        }
-        return "アプリを起動しています…"
-    }
-
-    private var iconName: String {
-        switch model.status {
-        case .done: return "checkmark.circle.fill"
-        case .failed: return "exclamationmark.triangle.fill"
-        default: return "arrow.down.circle"
-        }
-    }
-
-    private var iconColor: Color {
-        switch model.status {
-        case .done: return .green
-        case .failed: return .orange
-        default: return .accentColor
-        }
+    private var isFinished: Bool {
+        state.loadError != nil
+            || (!manager.jobs.isEmpty && manager.jobs.allSatisfy { $0.status.isFinished })
     }
 }

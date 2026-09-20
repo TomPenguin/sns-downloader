@@ -77,7 +77,7 @@ cat > "$APPS_JSON" <<JSON
       "bundleIdentifier": "tech.karabiner.mochi.snsdownloader",
       "developerName": "TomPenguin",
       "subtitle": "SNSの画像・動画を写真に一括保存",
-      "localizedDescription": "X / Instagram / TikTok / YouTube / pixiv の画像・動画・うごイラを写真ライブラリに保存します。",
+      "localizedDescription": "X / Instagram / Threads / TikTok / YouTube / pixiv の画像・動画・うごイラを写真ライブラリに保存します。",
       "iconURL": "https://raw.githubusercontent.com/$REPO/main/$ICON",
       "tintColor": "#1DA1F2",
       "category": "utilities",

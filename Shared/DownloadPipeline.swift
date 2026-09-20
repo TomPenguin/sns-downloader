@@ -33,32 +33,6 @@ enum JobStatus: Equatable, Sendable {
 /// (本体アプリと共有シート拡張の両方から使う)
 enum DownloadPipeline {
 
-    /// 1 つの投稿 URL を処理する(全メディアを保存)。共有拡張のフォールバック用。
-    /// `pixivRestrictedMessage` を渡すと、pixiv の R-18 等(要ログイン)で失敗したときに
-    /// その文言を代わりに表示する(共有拡張は本体アプリのログインを読めないため、
-    /// 「本体アプリで開いてください」と案内する用途)。
-    static func run(
-        url: URL,
-        pixivRestrictedMessage: String? = nil,
-        onStatus: @escaping @Sendable (JobStatus) -> Void
-    ) async -> JobStatus {
-        do {
-            onStatus(.extracting)
-            let items = try await ExtractorRouter.extract(from: url)
-            return await downloadAndSave(items: items, onStatus: onStatus)
-        } catch {
-            let message: String
-            if case ExtractError.pixivRestricted = error, let override = pixivRestrictedMessage {
-                message = override
-            } else {
-                message = Self.message(for: error)
-            }
-            let result = JobStatus.failed(message)
-            onStatus(result)
-            return result
-        }
-    }
-
     /// メディア一覧をダウンロードして写真ライブラリに保存する。
     /// 進捗 fraction は全メディアを通した全体進捗(0.0〜1.0)。
     static func downloadAndSave(

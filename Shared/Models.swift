@@ -44,19 +44,22 @@ enum ExtractError: LocalizedError {
     case notFound
     case noMedia
     case loginRequired
+    case instagramSessionExpired
     case pixivRestricted
     case apiError(String)
 
     var errorDescription: String? {
         switch self {
         case .unsupportedURL:
-            return "対応していないURLです(X / Instagram / TikTok / YouTube / pixiv の投稿URLを指定してください)"
+            return "対応していないURLです(X / Instagram / Threads / TikTok / YouTube / pixiv の投稿URLを指定してください)"
         case .notFound:
             return "投稿が見つかりませんでした(削除済みの可能性があります)"
         case .noMedia:
             return "この投稿には画像・動画がありません"
         case .loginRequired:
             return "非公開アカウントかログインが必要な投稿のため取得できませんでした"
+        case .instagramSessionExpired:
+            return "Instagramのセッションが切れました。再ログインしてください"
         case .pixivRestricted:
             return "取得できませんでした。R-18等の作品は、設定からpixivにログインし、pixiv側で「性的コンテンツを表示する」をONにしてください"
         case .apiError(let message):
