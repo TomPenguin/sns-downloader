@@ -152,7 +152,7 @@ struct ContentView: View {
 
     private var inputArea: some View {
         TextField(
-            "X / Instagram / Threads / TikTok / YouTube / pixiv のURL(複数可)",
+            "投稿URL / 画像・動画・m3u8・mpdの直リンク(複数可)",
             text: $input,
             axis: .vertical
         )

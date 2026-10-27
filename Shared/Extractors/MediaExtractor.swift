@@ -15,6 +15,8 @@ enum ExtractorRouter {
         PixivExtractor(),
         AdultVideoExtractor(),
         IwaraExtractor(),
+        // 対応サイトに該当しない直リンクの受け皿。必ず最後に置く
+        DirectMediaExtractor(),
     ]
 
     static func extract(from url: URL) async throws -> [MediaItem] {

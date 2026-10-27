@@ -3,12 +3,15 @@ import Foundation
 
 enum MuxError: LocalizedError {
     case noVideoTrack
+    case noTracks
     case exportFailed(String)
 
     var errorDescription: String? {
         switch self {
         case .noVideoTrack:
             return "動画の合成に失敗しました(映像トラックがありません)"
+        case .noTracks:
+            return "動画の変換に失敗しました(再生できるトラックがありません)"
         case .exportFailed(let message):
             return "動画の合成に失敗しました: \(message)"
         }
@@ -140,5 +143,80 @@ enum MediaMuxer {
                 }
             }
         }
+    }
+}
+
+extension MediaMuxer {
+
+    /// 1 つの動画ファイルを再エンコードせずに書き直す。
+    ///
+    /// HLS の fMP4 セグメントを連結したファイルは fragmented mp4 のままなので、
+    /// 写真ライブラリに入れる前に通常の mp4 に直す。`mux` と同じく
+    /// サンプル単位のパススルーで、コンテナ duration の誤読も吸収される
+    static func remux(file: URL, filenameBase: String) async throws -> URL {
+        let output = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(filenameBase)_\(UUID().uuidString.prefix(8))")
+            .appendingPathExtension("mp4")
+        try? FileManager.default.removeItem(at: output)
+
+        let asset = AVURLAsset(url: file)
+        let writer = try AVAssetWriter(outputURL: output, fileType: .mp4)
+        let reader = try AVAssetReader(asset: asset)
+
+        // 音声だけの Representation もそのまま書き直せるようにする
+        var pairs: [(AVAssetReaderTrackOutput, AVAssetWriterInput)] = []
+
+        if let videoTrack = try await asset.loadTracks(withMediaType: .video).first {
+            let videoOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: nil)
+            reader.add(videoOutput)
+            let videoInput = AVAssetWriterInput(
+                mediaType: .video,
+                outputSettings: nil,
+                sourceFormatHint: try await videoTrack.load(.formatDescriptions).first
+            )
+            videoInput.expectsMediaDataInRealTime = false
+            videoInput.transform = try await videoTrack.load(.preferredTransform)
+            writer.add(videoInput)
+            pairs.append((videoOutput, videoInput))
+        }
+
+        if let audioTrack = try await asset.loadTracks(withMediaType: .audio).first {
+            let output = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: nil)
+            reader.add(output)
+            let input = AVAssetWriterInput(
+                mediaType: .audio,
+                outputSettings: nil,
+                sourceFormatHint: try await audioTrack.load(.formatDescriptions).first
+            )
+            input.expectsMediaDataInRealTime = false
+            writer.add(input)
+            pairs.append((output, input))
+        }
+        guard !pairs.isEmpty else { throw MuxError.noTracks }
+
+        guard writer.startWriting() else {
+            throw writer.error ?? MuxError.exportFailed("書き込みを開始できませんでした")
+        }
+        writer.startSession(atSourceTime: .zero)
+        guard reader.startReading() else {
+            writer.cancelWriting()
+            throw reader.error ?? MuxError.exportFailed("読み込みを開始できませんでした")
+        }
+
+        await withTaskGroup(of: Void.self) { group in
+            for (index, pair) in pairs.enumerated() {
+                group.addTask { await pump(from: pair.0, to: pair.1, queueLabel: "remux.\(index)") }
+            }
+        }
+
+        if reader.status == .failed {
+            writer.cancelWriting()
+            throw reader.error ?? MuxError.exportFailed("読み込みに失敗しました")
+        }
+        await writer.finishWriting()
+        guard writer.status == .completed else {
+            throw writer.error ?? MuxError.exportFailed("書き込みに失敗しました")
+        }
+        return output
     }
 }

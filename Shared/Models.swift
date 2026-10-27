@@ -5,6 +5,14 @@ enum MediaType: String, Sendable {
     case video
 }
 
+/// 分割配信のマニフェスト形式
+enum ManifestFormat: String, Sendable {
+    /// m3u8 (HTTP Live Streaming)
+    case hls
+    /// mpd (MPEG-DASH)
+    case dash
+}
+
 /// うごイラ(pixiv のアニメーション)の 1 フレーム。
 /// ZIP 内のファイル名と表示時間(ミリ秒)を持つ
 struct UgoiraFrame: Sendable {
@@ -33,6 +41,9 @@ struct MediaItem: Sendable {
     /// うごイラの場合のフレーム情報。非 nil のとき、url は各フレーム画像を収めた
     /// ZIP を指す。ダウンロード後に ZIP を展開して mp4 に組み立ててから保存する
     var ugoiraFrames: [UgoiraFrame]? = nil
+    /// 非 nil のとき url は配信マニフェストを指す。
+    /// セグメントを順に落として 1 本の mp4 に組み立ててから保存する
+    var streamFormat: ManifestFormat? = nil
     /// URL やレスポンスから拡張子が判定できない場合に使う拡張子
     var defaultExtension: String {
         type == .photo ? "jpg" : "mp4"
@@ -51,7 +62,7 @@ enum ExtractError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unsupportedURL:
-            return "対応していないURLです(X / Instagram / Threads / TikTok / YouTube / pixiv の投稿URLを指定してください)"
+            return "対応していないURLです(X / Instagram / Threads / TikTok / YouTube / pixiv の投稿URL、または画像・動画・m3u8・mpd の直リンクを指定してください)"
         case .notFound:
             return "投稿が見つかりませんでした(削除済みの可能性があります)"
         case .noMedia:

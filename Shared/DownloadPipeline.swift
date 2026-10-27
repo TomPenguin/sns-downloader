@@ -91,6 +91,26 @@ enum DownloadPipeline {
             return mp4
         }
 
+        // 分割配信: マニフェストを読んでセグメントを落とし、mp4 に組み立てる
+        switch item.streamFormat {
+        case .hls:
+            return try await HLSDownloader.download(
+                playlistURL: item.url,
+                filenameBase: item.filenameBase,
+                headers: item.httpHeaders,
+                progress: progress
+            )
+        case .dash:
+            return try await DASHDownloader.download(
+                manifestURL: item.url,
+                filenameBase: item.filenameBase,
+                headers: item.httpHeaders,
+                progress: progress
+            )
+        case nil:
+            break
+        }
+
         guard let audioURL = item.audioURL else {
             return try await Downloader.shared.download(item, progress: progress)
         }
