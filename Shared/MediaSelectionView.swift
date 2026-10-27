@@ -7,6 +7,10 @@ struct MediaSelectionView: View {
     let onCancel: () -> Void
 
     @State private var selected: Set<Int>
+    /// ユーザーが選び直したサムネイル(添字 → フレーム)。このシートが閉じるまでの一時的な表示用
+    @State private var pickedFrames: [Int: UIImage] = [:]
+    /// フレーム選択シートを開いている対象(nil なら非表示)
+    @State private var frameTarget: FrameTarget?
 
     init(selection: PendingSelection, onConfirm: @escaping (Set<Int>) -> Void, onCancel: @escaping () -> Void) {
         self.selection = selection
@@ -25,14 +29,19 @@ struct MediaSelectionView: View {
                     ForEach(selection.items.indices, id: \.self) { index in
                         MediaCell(
                             item: selection.items[index],
-                            isSelected: selected.contains(index)
-                        ) {
-                            if selected.contains(index) {
-                                selected.remove(index)
-                            } else {
-                                selected.insert(index)
-                            }
-                        }
+                            isSelected: selected.contains(index),
+                            pickedFrame: pickedFrames[index],
+                            onTap: {
+                                if selected.contains(index) {
+                                    selected.remove(index)
+                                } else {
+                                    selected.insert(index)
+                                }
+                            },
+                            onPickFrame: selection.items[index].type == .video
+                                ? { frameTarget = FrameTarget(index: index) }
+                                : nil
+                        )
                     }
                 }
                 .padding()
@@ -68,15 +77,51 @@ struct MediaSelectionView: View {
             }
         }
         .interactiveDismissDisabled()
+        .sheet(item: $frameTarget) { target in
+            VideoFrameSelectionView(item: selection.items[target.index]) { frame in
+                pickedFrames[target.index] = frame
+                frameTarget = nil
+            } onCancel: {
+                frameTarget = nil
+            }
+        }
+    }
+
+    /// sheet(item:) に渡すための対象セルの添字
+    private struct FrameTarget: Identifiable {
+        let index: Int
+        var id: Int { index }
     }
 }
 
 private struct MediaCell: View {
     let item: MediaItem
     let isSelected: Bool
+    let pickedFrame: UIImage?
     let onTap: () -> Void
+    /// 動画のときだけ非 nil。フレーム選択シートを開く
+    let onPickFrame: (() -> Void)?
 
     var body: some View {
+        // フレーム選択ボタンはセル本体の Button の中に入れると選択トグルと取り合うので、
+        // 入れ子にせず同じ ZStack に並べる
+        ZStack(alignment: .bottomTrailing) {
+            cell
+            if let onPickFrame {
+                Button(action: onPickFrame) {
+                    Image(systemName: "slider.horizontal.below.rectangle")
+                        .font(.footnote)
+                        .foregroundStyle(.white)
+                        .padding(6)
+                        .background(Color.black.opacity(0.45), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .padding(6)
+            }
+        }
+    }
+
+    private var cell: some View {
         Button(action: onTap) {
             ZStack(alignment: .topTrailing) {
                 // グリッド幅から正方形セルを確定し、その中に画像を fill してクリップする。
@@ -104,7 +149,9 @@ private struct MediaCell: View {
     @ViewBuilder
     private var thumbnail: some View {
         ZStack {
-            if let url = item.thumbnailURL {
+            if let frame = pickedFrame {
+                Image(uiImage: frame).resizable().scaledToFill()
+            } else if let url = item.thumbnailURL {
                 // AsyncImage はカスタムヘッダを送れず、pixiv (i.pximg.net) など
                 // Referer 必須の CDN では 403 になるため、ヘッダ対応の自前ローダを使う
                 RemoteImageView(url: url, headers: item.httpHeaders) {
